@@ -1,0 +1,10 @@
+.venv/
+.run/
+certs/
+keys/*
+!keys/.gitkeep
+deploy/aws/secrets/
+deploy/aws/cluster.env
+__pycache__/
+*.pyc
+.pytest_cache/

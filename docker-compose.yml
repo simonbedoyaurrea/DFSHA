@@ -1,0 +1,78 @@
+# Clúster local con Docker (sin TLS): 3 etcd (Raft) + 2 servicios de control + 4 nodos de datos + un contenedor cliente.
+#   python deploy/gen-keys.py keys        # una sola vez
+#   docker compose up --build -d
+#   docker compose exec cli dfsha register simon --password secreto123
+#   docker compose exec cli dfsha login simon --password secreto123
+#   docker compose exec cli dfsha status
+# Para probar caídas:  docker compose stop dn2   /   docker compose start dn2
+x-etcd: &etcd
+  image: quay.io/coreos/etcd:v3.5.17
+  restart: unless-stopped
+x-app: &app
+  build: .
+  restart: unless-stopped
+  environment: &appenv
+    PRIVATE_KEY: /keys/control_ed25519.pem
+    PUBLIC_KEY: /keys/control_ed25519.pub
+    KEK_FILE: /keys/kek.b64
+    CLUSTER_TOKEN_FILE: /keys/cluster_token
+  volumes: ["./keys:/keys:ro"]
+
+services:
+  etcd1:
+    <<: *etcd
+    command: [etcd, --name=etcd1, --data-dir=/data, --listen-client-urls=http://0.0.0.0:2379, --advertise-client-urls=http://etcd1:2379, --listen-peer-urls=http://0.0.0.0:2380, --initial-advertise-peer-urls=http://etcd1:2380, "--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380", --initial-cluster-token=dfsha, --initial-cluster-state=new]
+    volumes: ["etcd1:/data"]
+  etcd2:
+    <<: *etcd
+    command: [etcd, --name=etcd2, --data-dir=/data, --listen-client-urls=http://0.0.0.0:2379, --advertise-client-urls=http://etcd2:2379, --listen-peer-urls=http://0.0.0.0:2380, --initial-advertise-peer-urls=http://etcd2:2380, "--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380", --initial-cluster-token=dfsha, --initial-cluster-state=new]
+    volumes: ["etcd2:/data"]
+  etcd3:
+    <<: *etcd
+    command: [etcd, --name=etcd3, --data-dir=/data, --listen-client-urls=http://0.0.0.0:2379, --advertise-client-urls=http://etcd3:2379, --listen-peer-urls=http://0.0.0.0:2380, --initial-advertise-peer-urls=http://etcd3:2380, "--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380", --initial-cluster-token=dfsha, --initial-cluster-state=new]
+    volumes: ["etcd3:/data"]
+
+  control1:
+    <<: *app
+    command: ["python", "-m", "dfsha.control.main"]
+    environment: {<<: *appenv, CONTROL_ID: control1, PORT: "8000", INTERNAL_PORT: "8100", ETCD_ENDPOINTS: "http://etcd1:2379,http://etcd2:2379,http://etcd3:2379"}
+    ports: ["8000:8000"]
+    depends_on: [etcd1, etcd2, etcd3]
+  control2:
+    <<: *app
+    command: ["python", "-m", "dfsha.control.main"]
+    environment: {<<: *appenv, CONTROL_ID: control2, PORT: "8001", INTERNAL_PORT: "8101", ETCD_ENDPOINTS: "http://etcd1:2379,http://etcd2:2379,http://etcd3:2379"}
+    ports: ["8001:8001"]
+    depends_on: [etcd1, etcd2, etcd3]
+
+  dn1: &dn
+    <<: *app
+    command: ["python", "-m", "dfsha.datanode.main"]
+    environment: {<<: *appenv, NODE_ID: dn1, PORT: "9001", INTERNAL_PORT: "9101", PUBLIC_URL: "http://dn1:9001", INTERNAL_URL: "http://dn1:9101", CONTROL_INTERNAL_URLS: "http://control1:8100,http://control2:8101", DATA_DIR: /data}
+    volumes: ["./keys:/keys:ro", "dn1:/data"]
+    ports: ["9001:9001"]
+    depends_on: [control1, control2]
+  dn2:
+    <<: *dn
+    environment: {<<: *appenv, NODE_ID: dn2, PORT: "9002", INTERNAL_PORT: "9102", PUBLIC_URL: "http://dn2:9002", INTERNAL_URL: "http://dn2:9102", CONTROL_INTERNAL_URLS: "http://control1:8100,http://control2:8101", DATA_DIR: /data}
+    volumes: ["./keys:/keys:ro", "dn2:/data"]
+    ports: ["9002:9002"]
+  dn3:
+    <<: *dn
+    environment: {<<: *appenv, NODE_ID: dn3, PORT: "9003", INTERNAL_PORT: "9103", PUBLIC_URL: "http://dn3:9003", INTERNAL_URL: "http://dn3:9103", CONTROL_INTERNAL_URLS: "http://control1:8100,http://control2:8101", DATA_DIR: /data}
+    volumes: ["./keys:/keys:ro", "dn3:/data"]
+    ports: ["9003:9003"]
+  dn4:
+    <<: *dn
+    environment: {<<: *appenv, NODE_ID: dn4, PORT: "9004", INTERNAL_PORT: "9104", PUBLIC_URL: "http://dn4:9004", INTERNAL_URL: "http://dn4:9104", CONTROL_INTERNAL_URLS: "http://control1:8100,http://control2:8101", DATA_DIR: /data}
+    volumes: ["./keys:/keys:ro", "dn4:/data"]
+    ports: ["9004:9004"]
+
+  cli:
+    build: .
+    command: ["sleep", "infinity"]
+    environment: {DFSHA_CONTROL: "http://control1:8000,http://control2:8001", DFSHA_HOME: /home/dfsha}
+    volumes: ["cli:/home/dfsha"]
+    depends_on: [control1, control2]
+
+volumes: {etcd1: {}, etcd2: {}, etcd3: {}, dn1: {}, dn2: {}, dn3: {}, dn4: {}, cli: {}}
