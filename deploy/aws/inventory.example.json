@@ -1,0 +1,5 @@
+[
+  {"n": 1, "private": "IP_PRIVADA_HOST1", "public": "IP_PUBLICA_HOST1"},
+  {"n": 2, "private": "IP_PRIVADA_HOST2", "public": "IP_PUBLICA_HOST2"},
+  {"n": 3, "private": "IP_PRIVADA_HOST3", "public": "IP_PUBLICA_HOST3"}
+]

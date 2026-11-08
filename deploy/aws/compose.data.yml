@@ -1,0 +1,24 @@
+# VM de datos: un nodo de datos. Solo recibe la clave PÚBLICA (para validar tokens) y el token de clúster.
+# Se lanza con:  docker compose --env-file node.env -f compose.data.yml up -d --build
+services:
+  datanode:
+    build: {context: ../.., dockerfile: Dockerfile}
+    container_name: dfsha-dn
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "-m", "dfsha.datanode.main"]
+    environment:
+      TLS: "1"
+      CA_FILE: /certs/ca.crt
+      CERT_FILE: /certs/${NODE}.crt
+      KEY_FILE: /certs/${NODE}.key
+      PUBLIC_KEY: /keys/control_ed25519.pub
+      CLUSTER_TOKEN_FILE: /keys/cluster_token
+      NODE_ID: ${NODE}
+      PORT: "8443"
+      INTERNAL_PORT: "8444"
+      PUBLIC_URL: https://${MY_IP}:8443
+      INTERNAL_URL: https://${MY_IP}:8444
+      CONTROL_INTERNAL_URLS: ${CONTROL_INTERNAL_URLS}
+      DATA_DIR: /data
+    volumes: ["/var/lib/dfsha:/data", "./secrets/certs:/certs:ro", "./secrets/keys:/keys:ro"]

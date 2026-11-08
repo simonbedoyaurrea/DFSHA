@@ -1,0 +1,54 @@
+# VM de control: un nodo etcd (clúster de 3 con Raft) + una instancia del servicio de control.
+# Se lanza con:  docker compose --env-file node.env -f compose.control.yml up -d --build
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.17
+    container_name: dfsha-etcd
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - etcd
+      - --name=${NODE}
+      - --data-dir=/data
+      - --listen-client-urls=https://0.0.0.0:2379
+      - --advertise-client-urls=https://${MY_IP}:2379
+      - --listen-peer-urls=https://0.0.0.0:2380
+      - --initial-advertise-peer-urls=https://${MY_IP}:2380
+      - --initial-cluster=${ETCD_CLUSTER}
+      - --initial-cluster-token=dfsha
+      - --initial-cluster-state=new
+      - --cert-file=/certs/${NODE}.crt
+      - --key-file=/certs/${NODE}.key
+      - --trusted-ca-file=/certs/ca.crt
+      - --client-cert-auth
+      - --peer-cert-file=/certs/${NODE}.crt
+      - --peer-key-file=/certs/${NODE}.key
+      - --peer-trusted-ca-file=/certs/ca.crt
+      - --peer-client-cert-auth
+    volumes: ["etcd-data:/data", "./secrets/certs:/certs:ro"]
+  control:
+    build: {context: ../.., dockerfile: Dockerfile}
+    container_name: dfsha-control
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "-m", "dfsha.control.main"]
+    depends_on: [etcd]
+    environment:
+      TLS: "1"
+      CA_FILE: /certs/ca.crt
+      CERT_FILE: /certs/${NODE}.crt
+      KEY_FILE: /certs/${NODE}.key
+      ETCD_ENDPOINTS: ${ETCD_ENDPOINTS}
+      ETCD_CA: /certs/ca.crt
+      ETCD_CERT: /certs/${NODE}.crt
+      ETCD_KEY: /certs/${NODE}.key
+      PRIVATE_KEY: /keys/control_ed25519.pem
+      PUBLIC_KEY: /keys/control_ed25519.pub
+      KEK_FILE: /keys/kek.b64
+      CLUSTER_TOKEN_FILE: /keys/cluster_token
+      CONTROL_ID: ${NODE}
+      PORT: "8443"
+      INTERNAL_PORT: "8444"
+    volumes: ["./secrets/certs:/certs:ro", "./secrets/keys:/keys:ro"]
+volumes:
+  etcd-data: {}

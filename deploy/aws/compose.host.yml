@@ -1,0 +1,86 @@
+# Un host AWS: etcd + control + datos, separados en contenedores.
+# Tres hosts distintos conservan la mayoría de metadatos y W=2 al perder uno.
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.17
+    container_name: dfsha-etcd
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - etcd
+      - --name=host${N}
+      - --data-dir=/data
+      - --listen-client-urls=https://0.0.0.0:2379
+      - --advertise-client-urls=https://${MY_IP}:2379
+      - --listen-peer-urls=https://0.0.0.0:2380
+      - --initial-advertise-peer-urls=https://${MY_IP}:2380
+      - --initial-cluster=${ETCD_CLUSTER}
+      - --initial-cluster-token=dfsha-entrega
+      - --initial-cluster-state=new
+      - --cert-file=/certs/host${N}.crt
+      - --key-file=/certs/host${N}.key
+      - --trusted-ca-file=/certs/ca.crt
+      - --client-cert-auth
+      - --peer-cert-file=/certs/host${N}.crt
+      - --peer-key-file=/certs/host${N}.key
+      - --peer-trusted-ca-file=/certs/ca.crt
+      - --peer-client-cert-auth
+    volumes: ["etcd-data:/data", "./secrets/certs:/certs:ro"]
+  control:
+    build: {context: ../.., dockerfile: Dockerfile}
+    container_name: dfsha-control
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "-m", "dfsha.control.main"]
+    environment: &settings
+      TLS: "1"
+      CA_FILE: /certs/ca.crt
+      CERT_FILE: /certs/host${N}.crt
+      KEY_FILE: /certs/host${N}.key
+      ETCD_ENDPOINTS: ${ETCD_ENDPOINTS}
+      ETCD_CA: /certs/ca.crt
+      ETCD_CERT: /certs/host${N}.crt
+      ETCD_KEY: /certs/host${N}.key
+      PRIVATE_KEY: /keys/control_ed25519.pem
+      PUBLIC_KEY: /keys/control_ed25519.pub
+      KEK_FILE: /keys/kek.b64
+      CLUSTER_TOKEN_FILE: /keys/cluster_token
+      CONTROL_ID: control${N}
+      PORT: "8443"
+      INTERNAL_PORT: "8444"
+      BLOCK_SIZE: "4194304"
+      RF: "3"
+      W: "2"
+      LOCK_TTL: "30"
+      SESSION_TTL: "1800"
+      BLOCK_TOKEN_TTL: "60"
+      HEARTBEAT_INTERVAL: "3"
+      BLOCKREPORT_INTERVAL: "5"
+      SUSPECT_AFTER: "9"
+      DEAD_AFTER: "15"
+      GC_GRACE: "75"
+      MONITOR_INTERVAL: "2"
+    volumes: ["./secrets/certs:/certs:ro", "./secrets/keys:/keys:ro"]
+  datanode:
+    build: {context: ../.., dockerfile: Dockerfile}
+    container_name: dfsha-dn
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "-m", "dfsha.datanode.main"]
+    environment:
+      <<: *settings
+      PORT: "9443"
+      INTERNAL_PORT: "9444"
+      NODE_ID: dn${N}
+      PUBLIC_URL: https://${MY_IP}:9443
+      INTERNAL_URL: https://${MY_IP}:9444
+      CONTROL_INTERNAL_URLS: ${CONTROL_INTERNAL_URLS}
+      DATA_DIR: /data
+    volumes:
+      - dn-data:/data
+      - ./secrets/certs:/certs:ro
+      - ./secrets/keys/control_ed25519.pub:/keys/control_ed25519.pub:ro
+      - ./secrets/keys/cluster_token:/keys/cluster_token:ro
+volumes:
+  etcd-data: {}
+  dn-data: {}
